@@ -3,18 +3,155 @@
 
 ## Loading and preprocessing the data
 
+Read the file activity.csv, in the current working directory, and load the results into a dataframe 
+called activity.
 
+```{r, echo=TRUE}
+activity <- read.csv("activity.csv")
+```
 
-## What is mean total number of steps taken per day?
+## What is mean total number of steps taken by day?
 
+Plot a histogram of total steps by day.  Then calculate the mean and median of the daily totals.
 
+```{r echo=TRUE}
+# calculate the sum of steps for each day
+total.steps.by.day <- tapply(activity$steps, activity$date, sum, na.rm=T)
+# create a histogram
+library(ggplot2)
+ggplot(NULL, aes(x=total.steps.by.day)) + 
+    geom_histogram(binwidth=3000, fill="red", colour="black") +
+    ggtitle("Histogram of total steps taken by day") +
+    xlab("Total steps by day")
+# calculate the mean and median for the sum of steps by day
+cat("The mean is ", mean(total.steps.by.day), "\n", sep="")
+cat("The median is ", median(total.steps.by.day), "\n", sep="")
+```
+
+The histogram looks like it may be bell-shaped, except that it has a high count in the first
+interval.  
+<p>
+The median is 10395 and the mean is 9354 total steps per day.
 
 ## What is the average daily activity pattern?
 
+Plot a time series of average steps by five-minute interval over the course of a day.  Then find 
+the maximum point (highest average number of steps per five-minute interval).
 
+```{r, echo=TRUE}
+# calculate the sum of steps for each interval
+mean.steps.by.interval <- tapply(activity$steps, activity$interval, mean, na.rm=T)
+interval <- as.numeric(names(mean.steps.by.interval))
+# adjust to use on standard numeric scale (ex: convert 9:30, coded 930, to 950)
+interval <- (interval %/% 100 + (interval %% 100) / 60) * 100
+# create a time series plot
+ggplot(NULL, aes(x = interval, y = mean.steps.by.interval)) + 
+    geom_line(colour="blue") + ggtitle("Time series plot of average steps by interval") +
+    ylab("average number of steps")
+# find the maximum point
+max.interval <- names(mean.steps.by.interval)[which.max(mean.steps.by.interval)]
+cat("interval: ", max.interval, ", value: ", mean.steps.by.interval[max.interval], sep="")
+```
+
+The greatest number of steps are taken between 8:35 and 8:40 AM. 
+This may be the time many of the participants in the study are leaving for or arriving 
+at work.
+Few steps are taken between midnight and 6:00 AM, the time when most people are 
+probably asleep.
 
 ## Imputing missing values
 
+The number of missing values can be calculated as follows:
 
+```{r, echo=TRUE}
+# a summary view of the activity dataframe will show that only the steps column has NAs
+# subset the dataframe where steps = NA
+steps.na <- activity[is.na(activity$steps),]
+# report the number of 
+(missing.value.count <- nrow(steps.na))
+```
+
+We see that there are 2304 missing values in the dataset. 
+<p>
+The strategy used to fill in the missing values will involve simple substitution using the median.
+The first six rows of the resulting dataset are shown in the output below.
+
+```{r, echo=TRUE}
+median.per.interval <- tapply(activity$steps, activity$interval, median, na.rm=T)
+activity.with.imputed.values <- activity
+# this still requires vectorization
+for (i in 1:nrow(activity.with.imputed.values)) {
+    if (is.na(activity.with.imputed.values$steps[i])) {
+        activity.with.imputed.values$steps[i] <- 
+            median.per.interval[as.character(activity.with.imputed.values$interval[i])]
+    }
+}
+rm(i)
+head(activity.with.imputed.values)
+```
+
+Now let's look at a histogram for the new dataset.
+
+```{r, echo=TRUE}
+total.steps.by.day.imp <- tapply(activity.with.imputed.values$steps, 
+                                 activity.with.imputed.values$date, sum)
+ggplot(NULL, aes(x=total.steps.by.day.imp)) + 
+    geom_histogram(binwidth=3000, fill="red", colour="black") +
+    ggtitle("Histogram of total steps taken by day\n(with imputed values)") +
+    xlab("Total steps by day")
+# calculate the mean and median for the sum of steps by day
+cat("The mean is ", mean(total.steps.by.day.imp), "\n", sep="")
+cat("The median is ", median(total.steps.by.day.imp), "\n", sep="")
+```
+
+The new histogram looks very similar to the first histogram.
+The median is the same, 10395, but the mean has increased from 9354 to 9504.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Start by created a factor indicating whether a day is classified as a weekday or weekend.
+View the head of the dataframe to see if the calculations make sense.
+
+```{r, echo=TRUE}
+# convert the date column to the Date datatype
+activity.with.imputed.values$date <- as.Date(activity.with.imputed.values$date)
+# use the weekdays function to get the day of the week
+# add as a column to the dataframe
+activity.with.imputed.values$day.text <- weekdays(activity.with.imputed.values$date)
+# use the day.text column, just added, to create a factor with levels "weekend" and "weekday"
+activity.with.imputed.values$day.type <- 
+    factor(ifelse(activity.with.imputed.values$day.text == "Saturday" | 
+                      activity.with.imputed.values$day.text == "Sunday", 
+                  "weekend", "weekday"))
+# view the results
+head(activity.with.imputed.values)
+```
+
+Now create a panel plot containing time series plots by day type.
+
+```{r, echo=TRUE}
+# break the data frame into two parts, using day.type as a separator
+df.list <- split(activity.with.imputed.values, activity.with.imputed.values$day.type)
+# calculate the sum of steps for each interval
+mean.steps <- lapply(df.list, function(x) { tapply(x$steps, x$interval, mean, na.rm=T) })
+create.df <- function(v) {
+    interval <- as.numeric(names(v))
+    # adjust to use on standard numeric scale (ex: convert 9:30, coded 930, to 950)
+    interval <- (interval %/% 100 + (interval %% 100) / 60) * 100
+    return(data.frame(mean.steps=v, interval=interval))
+}
+df.list <- lapply(mean.steps, create.df)
+for (i in 1:2) {
+    df.list[[i]]$day.type <- rep(names(mean.steps)[i], length(nrow(df.list[[i]])))
+}
+df.all <- rbind(df.list[[1]], df.list[[2]])
+# now create the panel plot
+ggplot(df.all, aes(x = interval, y = mean.steps, group = day.type)) + 
+    geom_line(colour="blue") + 
+    ggtitle("Time series panel plot of average steps by interval,\ngrouped by day type") +
+    ylab("average number of steps") + 
+    facet_wrap( ~ day.type, ncol=1)
+```
+
+The weekday time series plot has higher peaks, especially in the morning, but the weekend plot 
+shows that more steps are taken in between the morning and afternoon.  This may be because many participants are sitting at their desks during working hours.
